@@ -96,6 +96,7 @@ def main():
 	settings = parser.parse_args(shlex.split(getGitConfig('hooks.autodeploy', '')))
 	glUser = os.environ['GL_USER']
 	glRepo = os.environ['GL_REPO']
+	glSysUser = os.environ['USER']
 
 	if settings.behavior == 'fetch-reset' and (not settings.runAs or not settings.sshKey):
 		error("You have not specified RUNAS or SSHKEY required for fetch-reset behavior.")
@@ -131,8 +132,8 @@ def main():
 					systemQuitOnError(['git', 'reset', '--hard', pushBranch], env={'GIT_DIR': '.git'}, cwd=target)
 					info(' SUCCESS')
 				else:
-					info(" fetch git@localhost:%s.git" % (glRepo, ))
-					systemQuitOnError(['ssh-agent', 'bash', '-c', "ssh-add '%s'; git fetch git@localhost:%s.git" % (settings.sshKey, glRepo)], env={'GIT_DIR': '.git'}, runas=settings.runAs, cwd=target)
+					info(" fetch %s@localhost:%s.git" % (glSysUser, glRepo, ))
+					systemQuitOnError(['ssh-agent', 'bash', '-c', "ssh-add '%s'; git fetch '%s@localhost:%s.git'" % (settings.sshKey, glSysUser, glRepo)], env={'GIT_DIR': '.git'}, runas=settings.runAs, cwd=target)
 					info(" reset FETCH_HEAD")
 					systemQuitOnError(['git', 'reset', '--hard', 'FETCH_HEAD'], env={'GIT_DIR': '.git'}, runas=settings.runAs, cwd=target)
 					info(' SUCCESS')
