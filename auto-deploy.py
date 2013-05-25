@@ -40,6 +40,9 @@ def system(command, capture=False, env=None, cwd=None):
 		stdout, stderr = p.communicate()
 		return (p.wait(), stdout)
 
+def systemTest(command, env=None, cwd=None):
+	return (system(command, capture=False, env=env, cwd=cwd) == 0)
+
 def getGitConfig(name, default=None):
 	result, value = system(['git','config','--get', name], True)
 	if result != 0:
@@ -48,8 +51,7 @@ def getGitConfig(name, default=None):
 		return value.strip()
 
 def gitoliteCheckAccess(repo,user,perm,ref):
-	result = system(['gitolite', 'access', '-q', repo, user, perm, ref])
-	return result == 0
+	return systemTest(['gitolite', 'access', '-q', repo, user, perm, ref])
 
 def error(string):
 	sys.stderr.write("AUTODEPLOY:E: " + string + "\n")
@@ -59,12 +61,13 @@ def info(string):
 
 
 def main():
-	if not strbool(getGitConfig('hooks.autodeploy.enable')):
+	if not getGitConfig('hooks.autodeploy'):
 		exit(0)
 	parser = argparse.ArgumentParser(description="Gitolite Auto Deployment Script by Zhao Yichen")
 	parser.add_argument('hook', nargs=1, choices=['pre-receive', 'post-receive'])
+	parser.add_argument('--tee', dest='tee', default=False, action='store_true', help="Echo stdin back through stdout. Note, all messages are printed from stderr.")
 
-	hook = parser.parse_args().hook
+	args = parser.parse_args()
 
 	parser = argparse.ArgumentParser(description="Gitolite Auto Deployment Script by Zhao Yichen [Parsing Git Config Settings]")
 	parser.add_argument('deployPath', nargs='+', metavar="PATH")
@@ -75,7 +78,7 @@ def main():
 	parser.add_argument('--run-as', '-r', dest='runAs', default=None, help='The user to impersonate when deploying using fetch-reset. You must have sudo installed, and allow the git user to run git fetch, git reset, and any custom post-deploy command you may have as the target user without requiring a password. See sudoers.')
 	parser.add_argument('--ssh-key', '-k', dest='sshKey', default=None, help='Path to the ssh key file owned by RUNAS user, with at least u+r, and o-r/g-r perms. This key should at least have R access to SOURCEBRANCH on the current repository.')
 	parser.add_argument('--execute', '-e', dest='execute', default=None, help='Command to execute in the deployment directory after a successful deployment, using RUNAS if BEHAVIOR is fetch-reset, or the git user otherwise.')
-	settings = parser.parse_args(shlex.split(getGitConfig('hooks.autodeploy.settings', '')))
+	settings = parser.parse_args(shlex.split(getGitConfig('hooks.autodeploy', '')))
 	glUser = os.environ['GL_USER']
 	glRepo = os.environ['GL_REPO']
 
@@ -83,6 +86,41 @@ def main():
 		error("You have not specified RUNAS or SSHKEY required for fetch-reset behavior.")
 		exit(1)
 	os.umask(022)
+
+	raw = sys.stdin.read()
+
+	changes = map(lambda row: tuple(row.strip().split(' ')), raw.strip().split('\n'))
+
+	def processPostRecv():
+		deployDetected = False
+		for row in changes:
+			if row[2] == ("refs/heads/%s" % (settings.sourceBranch, )):
+				deployDetected = True
+				break
+		if not deployDetected:
+			return
+
+		info("")
+
+	def isLocal(repo):
+		if settings.pathType == 'local':
+			return True
+		elif settings.pathType == 'remote':
+			return False
+		else:
+			# ">0" because they shouldn't be at the front
+			if repo.find('://') > 0 or repo.find('@') > 0:
+				return False
+			else:
+				return True
+
+	if args.hook == 'post-receive':
+		processPostRecv()
+
+	#End, if tee, echo input
+	if args.tee:
+		sys.stdout.write(raw)
+
 
 
 
